@@ -12,34 +12,87 @@ LAST_ID_FILE = "last_id.txt"
 
 
 # ---------------------------
-# ניקוי טקסט
+# ניקוי בסיסי בלבד (בלי להרוס מבנה quote)
 # ---------------------------
 def clean_text(text: str) -> str:
     text = re.sub(r"\*\*", "", text)
-    text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
     text = re.sub(r"\[video-embedded.*?\]", "", text)
-
-    # ניקוי תגיות מערכת
-    text = re.sub(r"quote-embedded#?", "", text)
-    text = re.sub(r"video-embedded#?", "", text)
-
     text = re.sub(r"\n+", " ", text)
     text = re.sub(r"\s+", " ", text).strip()
-
     return text
+
+
+# ---------------------------
+# זיהוי quote מה-API
+# ---------------------------
+def parse_quote(text: str):
+    """
+    מזהה:
+    [quote-embedded#](ID@QUOTE_TEXT)
+    ומפריד בין quote לבין reply
+    """
+
+    match = re.search(
+        r"\[quote-embedded#\]\((\d+)@(.*?)\)\s*(.*)",
+        text,
+        re.DOTALL
+    )
+
+    if not match:
+        return None, text
+
+    quote_text = match.group(2).strip()
+    reply_text = match.group(3).strip()
+
+    return quote_text, reply_text
+
+
+# ---------------------------
+# זיהוי ספוילרים (אם קיימים בעתיד)
+# ---------------------------
+def extract_spoilers(text: str):
+    spoilers = re.findall(r"\[spoiler\](.*?)\[/spoiler\]", text, re.DOTALL)
+    text = re.sub(r"\[spoiler\].*?\[/spoiler\]", "", text, flags=re.DOTALL)
+    return spoilers, text
 
 
 # ---------------------------
 # עיצוב הודעה HTML
 # ---------------------------
-def format_message_html(text: str) -> str:
-    text = clean_text(text)
+def format_message_html(raw_text: str) -> str:
+
+    spoilers, text = extract_spoilers(raw_text)
+    quote, reply = parse_quote(text)
 
     html_parts = []
 
-    # ---------------- ספוילרים ----------------
-    spoilers = re.findall(r"\[spoiler\](.*?)\[/spoiler\]", text, re.DOTALL)
+    # ---------------- ציטוט ----------------
+    if quote:
+        html_parts.append(f"""
+        <div style="
+            border:1px solid #99d6ff;
+            border-radius:10px;
+            padding:10px;
+            margin-bottom:10px;
+            background:#eaf6ff;">
+            🌟 <b>ציטוט:</b><br>
+            <i>{clean_text(quote)}</i>
+        </div>
+        """)
 
+    # ---------------- תגובה ----------------
+    if reply:
+        html_parts.append(f"""
+        <div style="
+            border:1px solid #a9dfbf;
+            border-radius:10px;
+            padding:10px;
+            background:#eafaf1;">
+            {clean_text(reply).replace("\n", "<br>")}
+        </div>
+        """)
+
+    # ---------------- ספוילרים ----------------
     for s in spoilers:
         html_parts.append(f"""
         <div style="
@@ -49,42 +102,7 @@ def format_message_html(text: str) -> str:
             padding:10px;
             border-radius:10px;">
             🤐 <b>ספוילר:</b><br>
-            <span style="color:#333">{s.strip()}</span>
-        </div>
-        """)
-        text = text.replace(f"[spoiler]{s}[/spoiler]", "")
-
-    # ---------------- ציטוט ----------------
-    if text.startswith(">"):
-        parts = text.split("\n", 1)
-        quote = parts[0].lstrip(">")
-        rest = parts[1] if len(parts) > 1 else ""
-
-        html_parts.append(f"""
-        <div style="
-            border:1px solid #99d6ff;
-            border-radius:10px;
-            padding:10px;
-            margin-bottom:10px;
-            background:#eaf6ff;">
-            🌟 <b>ציטוט:</b><br>
-            <i>{quote.strip()}</i>
-        </div>
-        """)
-
-        text = rest
-
-    # ---------------- הודעה רגילה (בלי "תגובה") ----------------
-    if text.strip():
-        safe_text = text.replace("\n", "<br>")
-
-        html_parts.append(f"""
-        <div style="
-            border:1px solid #a9dfbf;
-            border-radius:10px;
-            padding:10px;
-            background:#eafaf1;">
-            {safe_text}
+            {clean_text(s)}
         </div>
         """)
 
@@ -151,7 +169,7 @@ def send_email(messages):
 
 
 # ---------------------------
-# קריאה ל-API ולוגיקה ראשית
+# לוגיקה ראשית
 # ---------------------------
 def main():
 
