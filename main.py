@@ -11,30 +11,24 @@ LAST_ID_FILE = "last_id.txt"
 
 
 # ---------------------------
-# בדיקה אם יש טקסט אמיתי
+# טקסט אמיתי
 # ---------------------------
 def has_real_text(text: str) -> bool:
     return bool(re.search(r"[a-zA-Z\u0590-\u05FF]", text))
 
 
-# ---------------------------
-# האם זה רק רעש
-# ---------------------------
 def is_noise_only(text: str) -> bool:
     cleaned = re.sub(r"[\s\|\*\-_:•]", "", text)
     cleaned = re.sub(r"[\U00010000-\U0010ffff]", "", cleaned)
     return cleaned == ""
 
 
-# ---------------------------
-# מדיה
-# ---------------------------
 def has_media(text: str) -> bool:
     return ("video-embedded#" in text or "image-embedded#" in text)
 
 
 # ---------------------------
-# ניקוי טקסט
+# ניקוי
 # ---------------------------
 def clean_text(text: str, media_mode: bool = False) -> str:
     text = re.sub(r"\[video-embedded#\]\([^)]+\)", "", text)
@@ -57,57 +51,47 @@ def clean_text(text: str, media_mode: bool = False) -> str:
 
 
 # ---------------------------
-# זיהוי ציטוט
+# ציטוט
 # ---------------------------
 def parse_quote(text: str):
     match = re.search(r"\[quote-embedded#\]\((\d+)@(.*?)\)\s*(.*)", text, re.DOTALL)
     if not match:
         return None, text
 
-    quote_text = match.group(2).strip()
-    reply_text = match.group(3).strip()
-
-    return quote_text, reply_text
+    return match.group(2).strip(), match.group(3).strip()
 
 
 # ---------------------------
-# עיצוב הודעה
+# HTML
 # ---------------------------
 def format_message_html(raw_text: str):
     media = has_media(raw_text)
     quote, reply = parse_quote(raw_text)
 
-    html_parts = []
+    parts = []
 
-    # -------- ציטוט --------
     if quote:
-        quote_clean = clean_text(quote, media_mode=media)
-
-        if has_real_text(quote_clean) and not is_noise_only(quote_clean):
-            html_parts.append(f"""
-            <div style="border:1px solid #99d6ff;border-radius:10px;padding:10px;margin-bottom:10px;background:#eaf6ff;">
-                🌟 <b>ציטוט:</b><br>
-                <i>{quote_clean}</i>
+        q = clean_text(quote, media_mode=media)
+        if has_real_text(q) and not is_noise_only(q):
+            parts.append(f"""
+            <div style="border:1px solid #99d6ff;padding:10px;border-radius:10px;background:#eaf6ff;">
+            🌟 <b>ציטוט:</b><br><i>{q}</i>
             </div>
             """)
 
-    # -------- תגובה --------
     if reply:
-        reply_clean = clean_text(reply, media_mode=media)
+        r = clean_text(reply, media_mode=media)
 
-        if not has_real_text(reply_clean) or is_noise_only(reply_clean):
+        if not has_real_text(r) or is_noise_only(r):
             return ""
 
-        html_parts.append(f"""
-        <div style="border:1px solid #a9dfbf;border-radius:10px;padding:10px;background:#eafaf1;">
-            {reply_clean}
+        parts.append(f"""
+        <div style="border:1px solid #a9dfbf;padding:10px;border-radius:10px;background:#eafaf1;">
+        {r}
         </div>
         """)
 
-    if not html_parts:
-        return ""
-
-    return "\n".join(html_parts)
+    return "\n".join(parts) if parts else ""
 
 
 # ---------------------------
@@ -143,25 +127,19 @@ def send_email(messages):
 
     body = "<html><body style='font-family:Arial;direction:rtl;'>"
 
-    valid_found = False
+    valid = False
 
     for m in messages:
-        formatted = format_message_html(m["text"])
-
-        if not formatted:
+        html = format_message_html(m["text"])
+        if not html:
             continue
 
-        valid_found = True
-
-        body += f"""
-        <div style="border:1px solid #ccc;border-radius:10px;padding:10px;margin-bottom:15px;">
-            {formatted}
-        </div>
-        """
+        valid = True
+        body += f"<div style='border:1px solid #ccc;padding:10px;margin-bottom:15px'>{html}</div>"
 
     body += "</body></html>"
 
-    if not valid_found:
+    if not valid:
         return
 
     msg.attach(MIMEText(body, "html", "utf-8"))
@@ -179,9 +157,7 @@ def main():
     offset = 0
 
     new_messages = []
-    seen_ids = set()
-
-    newest_id = None
+    newest_seen_id = None
     stop = False
 
     while True:
@@ -198,14 +174,10 @@ def main():
         for m in data:
             msg_id = str(m["id"])
 
-            if msg_id in seen_ids:
-                continue
-            seen_ids.add(msg_id)
+            if newest_seen_id is None:
+                newest_seen_id = msg_id  # הכי חדש מה-API
 
-            if newest_id is None:
-                newest_id = msg_id
-
-            if last_id is not None and msg_id == last_id:
+            if last_id and msg_id == last_id:
                 stop = True
                 break
 
@@ -218,16 +190,13 @@ def main():
 
     new_messages.reverse()
 
-    # שולחים רק אם יש משהו אמיתי
-    before_send_count = len(new_messages)
     send_email(new_messages)
 
-    # 🔥 קריטי: מעדכנים last_id רק אם באמת היה משהו לשלוח
-    if before_send_count > 0:
-        # לוקחים את ההודעה הכי חדשה שבאמת עברה עיבוד
-        save_last_id(str(new_messages[-1]["id"]))
+    # 🔥 חשוב מאוד: תמיד מעדכנים לפי ה-API, לא לפי סינון
+    if newest_seen_id:
+        save_last_id(newest_seen_id)
 
-    print(f"Sent {before_send_count} messages")
+    print(f"Sent {len(new_messages)} messages")
 
 
 if __name__ == "__main__":
