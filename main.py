@@ -6,45 +6,67 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
 API_URL = "https://hagizra.news/api/v2/messages"
-
 LIMIT = 20
 LAST_ID_FILE = "last_id.txt"
 
 
-# ---------------------------
-# ניקוי טקסט מהודעות
-# ---------------------------
+# =========================
+# ניקוי טקסט בסיסי
+# =========================
 def clean_text(text: str) -> str:
-    text = re.sub(r"\*\*", "", text)  # הסרת **
+    text = re.sub(r"\*\*", "", text)  # כוכביות
     text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)  # לינקים
     text = re.sub(r"\[video-embedded.*?\]", "", text)  # וידאו
-    text = re.sub(r"\n+", " ", text)  # שורות חדשות
-    text = re.sub(r"\s+", " ", text).strip()  # רווחים כפולים
+    text = re.sub(r"\n+", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
     return text
 
 
-# ---------------------------
+# =========================
+# חילוץ ציטוטים אם קיימים
+# =========================
+def parse_message(msg: dict) -> str:
+    raw = msg.get("text", "")
+
+    # אם יש quote embedded
+    if "quote-embedded" in raw or "ציטוט" in raw:
+        parts = raw.split("\n", 1)
+
+        quote_part = parts[0].strip()
+        reply_part = parts[1].strip() if len(parts) > 1 else ""
+
+        return (
+            "↩️ ציטוט:\n"
+            f"> {clean_text(quote_part)}\n\n"
+            "🗨️ תגובה:\n"
+            f"{clean_text(reply_part)}"
+        ).strip()
+
+    # הודעה רגילה
+    return "🗨️ הודעה:\n" + clean_text(raw)
+
+
+# =========================
 # קריאת ID אחרון
-# ---------------------------
+# =========================
 def load_last_id():
     if not os.path.exists(LAST_ID_FILE):
         return None
-
     with open(LAST_ID_FILE, "r", encoding="utf-8") as f:
         return f.read().strip() or None
 
 
-# ---------------------------
-# שמירת ID אחרון
-# ---------------------------
+# =========================
+# שמירת ID אחרון (נוצר לבד)
+# =========================
 def save_last_id(last_id):
     with open(LAST_ID_FILE, "w", encoding="utf-8") as f:
         f.write(str(last_id))
 
 
-# ---------------------------
+# =========================
 # שליחת מייל
-# ---------------------------
+# =========================
 def send_email(messages):
     if not messages:
         return
@@ -61,8 +83,8 @@ def send_email(messages):
     body = ""
 
     for m in messages:
-        clean = clean_text(m["text"])
-        body += f"\n\n---\nID: {m['id']}\n\n{clean}\n"
+        formatted = parse_message(m)
+        body += f"\n\n---\nID: {m['id']}\n\n{formatted}\n"
 
     msg.attach(MIMEText(body, "plain", "utf-8"))
 
@@ -71,9 +93,9 @@ def send_email(messages):
         server.send_message(msg)
 
 
-# ---------------------------
+# =========================
 # לוגיקה ראשית
-# ---------------------------
+# =========================
 def main():
 
     last_id = load_last_id()
@@ -99,12 +121,10 @@ def main():
         for m in data:
             msg_id = str(m["id"])
 
-            # שומר את הכי חדש שנמצא
             if newest_id is None:
                 newest_id = msg_id
 
-            # עצירה כשמגיעים למה שכבר ראינו
-            if last_id is not None and msg_id == last_id:
+            if last_id and msg_id == last_id:
                 stop = True
                 break
 
@@ -115,10 +135,10 @@ def main():
 
         offset += LIMIT
 
-    # להפוך לישן → חדש
+    # ישן → חדש
     new_messages.reverse()
 
-    # שליחת מייל
+    # שליחה
     send_email(new_messages)
 
     # שמירת ID אחרון
