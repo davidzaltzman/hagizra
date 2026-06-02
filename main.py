@@ -6,24 +6,38 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
 API_URL = "https://hagizra.news/api/v2/messages"
-
 LIMIT = 20
 LAST_ID_FILE = "last_id.txt"
 
 
 # ---------------------------
-# ניקוי טקסט בסיסי
+# ניקוי מתקדם (כולל פרסומות + embeds)
 # ---------------------------
 def clean_text(text: str) -> str:
+
+    # ❌ הסרת embeds (וידאו / תמונה)
+    text = re.sub(r"\[video-embedded#\]\([^)]+\)", "", text)
+    text = re.sub(r"\[image-embedded#\]\([^)]+\)", "", text)
+
+    # ❌ הסרת quote marker
+    text = re.sub(r"\[quote-embedded#\]", "", text)
+
+    # ❌ הסרת HTML spans (פרסומות כמו יעקב שוואקי)
+    text = re.sub(r"<span.*?>.*?</span>", "", text, flags=re.DOTALL)
+
+    # ❌ הסרת HTML כללי (אם נשאר משהו)
+    text = re.sub(r"<[^>]+>", "", text)
+
+    # ❌ ניקוי סימנים
     text = re.sub(r"\*\*", "", text)
-    text = re.sub(r"\[video-embedded.*?\]", "", text)
     text = re.sub(r"\n+", " ", text)
     text = re.sub(r"\s+", " ", text).strip()
+
     return text
 
 
 # ---------------------------
-# זיהוי ציטוט מה-API
+# זיהוי ציטוט
 # ---------------------------
 def parse_quote(text: str):
     match = re.search(
@@ -42,7 +56,7 @@ def parse_quote(text: str):
 
 
 # ---------------------------
-# עיצוב HTML של הודעה
+# עיצוב הודעה
 # ---------------------------
 def format_message_html(raw_text: str):
 
@@ -52,8 +66,6 @@ def format_message_html(raw_text: str):
 
     # ---------------- ציטוט ----------------
     if quote:
-        safe_quote = clean_text(quote)
-
         html_parts.append(f"""
         <div style="
             border:1px solid #99d6ff;
@@ -62,42 +74,44 @@ def format_message_html(raw_text: str):
             margin-bottom:10px;
             background:#eaf6ff;">
             🌟 <b>ציטוט:</b><br>
-            <i>{safe_quote}</i>
+            <i>{clean_text(quote)}</i>
         </div>
         """)
 
     # ---------------- תגובה ----------------
     if reply:
-        safe_reply = clean_text(reply)
-        safe_reply = safe_reply.replace("\n", "<br>")
 
-        html_parts.append(f"""
-        <div style="
-            border:1px solid #a9dfbf;
-            border-radius:10px;
-            padding:10px;
-            background:#eafaf1;">
-            {safe_reply}
-        </div>
-        """)
+        # ❌ הסרת וידאו/תמונה מתוך התגובה עצמה
+        reply = re.sub(r"\[video-embedded#\]\([^)]+\)", "", reply)
+        reply = re.sub(r"\[image-embedded#\]\([^)]+\)", "", reply)
+
+        safe_reply = clean_text(reply).replace("\n", "<br>")
+
+        if safe_reply.strip():
+
+            html_parts.append(f"""
+            <div style="
+                border:1px solid #a9dfbf;
+                border-radius:10px;
+                padding:10px;
+                background:#eafaf1;">
+                {safe_reply}
+            </div>
+            """)
 
     return "\n".join(html_parts)
 
 
 # ---------------------------
-# קריאת ID אחרון
+# ID אחרון
 # ---------------------------
 def load_last_id():
     if not os.path.exists(LAST_ID_FILE):
         return None
-
     with open(LAST_ID_FILE, "r", encoding="utf-8") as f:
         return f.read().strip() or None
 
 
-# ---------------------------
-# שמירת ID אחרון
-# ---------------------------
 def save_last_id(last_id):
     with open(LAST_ID_FILE, "w", encoding="utf-8") as f:
         f.write(str(last_id))
@@ -192,7 +206,7 @@ def main():
     if newest_id:
         save_last_id(newest_id)
 
-    print(f"Sent {len(new_messages)} new messages")
+    print(f"Sent {len(new_messages)} messages")
 
 
 if __name__ == "__main__":
