@@ -1,6 +1,7 @@
 import requests
 import os
 import smtplib
+import re
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
@@ -8,6 +9,18 @@ API_URL = "https://hagizra.news/api/v2/messages"
 
 LIMIT = 20
 LAST_ID_FILE = "last_id.txt"
+
+
+# ---------------------------
+# ניקוי טקסט מהודעות
+# ---------------------------
+def clean_text(text: str) -> str:
+    text = re.sub(r"\*\*", "", text)  # הסרת **
+    text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)  # לינקים
+    text = re.sub(r"\[video-embedded.*?\]", "", text)  # וידאו
+    text = re.sub(r"\n+", " ", text)  # שורות חדשות
+    text = re.sub(r"\s+", " ", text).strip()  # רווחים כפולים
+    return text
 
 
 # ---------------------------
@@ -46,8 +59,10 @@ def send_email(messages):
     msg["To"] = EMAIL_TO
 
     body = ""
+
     for m in messages:
-        body += f"\n\n---\nID: {m['id']}\n\n{m['text']}\n"
+        clean = clean_text(m["text"])
+        body += f"\n\n---\nID: {m['id']}\n\n{clean}\n"
 
     msg.attach(MIMEText(body, "plain", "utf-8"))
 
@@ -88,7 +103,7 @@ def main():
             if newest_id is None:
                 newest_id = msg_id
 
-            # אם הגענו להודעה שכבר ראינו → עצירה
+            # עצירה כשמגיעים למה שכבר ראינו
             if last_id is not None and msg_id == last_id:
                 stop = True
                 break
