@@ -12,7 +12,7 @@ LAST_ID_FILE = "last_id.txt"
 
 
 # ---------------------------
-# ניקוי בסיסי בלבד (בלי להרוס מבנה quote)
+# ניקוי טקסט בסיסי
 # ---------------------------
 def clean_text(text: str) -> str:
     text = re.sub(r"\*\*", "", text)
@@ -23,15 +23,9 @@ def clean_text(text: str) -> str:
 
 
 # ---------------------------
-# זיהוי quote מה-API
+# זיהוי ציטוט מה-API
 # ---------------------------
 def parse_quote(text: str):
-    """
-    מזהה:
-    [quote-embedded#](ID@QUOTE_TEXT)
-    ומפריד בין quote לבין reply
-    """
-
     match = re.search(
         r"\[quote-embedded#\]\((\d+)@(.*?)\)\s*(.*)",
         text,
@@ -48,26 +42,18 @@ def parse_quote(text: str):
 
 
 # ---------------------------
-# זיהוי ספוילרים (אם קיימים בעתיד)
+# עיצוב HTML של הודעה
 # ---------------------------
-def extract_spoilers(text: str):
-    spoilers = re.findall(r"\[spoiler\](.*?)\[/spoiler\]", text, re.DOTALL)
-    text = re.sub(r"\[spoiler\].*?\[/spoiler\]", "", text, flags=re.DOTALL)
-    return spoilers, text
-
-
-# ---------------------------
-# עיצוב הודעה HTML
-# ---------------------------
-def format_message_html(raw_text: str) -> str:
-
-    spoilers, text = extract_spoilers(raw_text)
-    quote, reply = parse_quote(text)
+def format_message_html(raw_text: str):
 
     html_parts = []
 
+    quote, reply = parse_quote(raw_text)
+
     # ---------------- ציטוט ----------------
     if quote:
+        safe_quote = clean_text(quote)
+
         html_parts.append(f"""
         <div style="
             border:1px solid #99d6ff;
@@ -76,33 +62,22 @@ def format_message_html(raw_text: str) -> str:
             margin-bottom:10px;
             background:#eaf6ff;">
             🌟 <b>ציטוט:</b><br>
-            <i>{clean_text(quote)}</i>
+            <i>{safe_quote}</i>
         </div>
         """)
 
     # ---------------- תגובה ----------------
     if reply:
+        safe_reply = clean_text(reply)
+        safe_reply = safe_reply.replace("\n", "<br>")
+
         html_parts.append(f"""
         <div style="
             border:1px solid #a9dfbf;
             border-radius:10px;
             padding:10px;
             background:#eafaf1;">
-            {clean_text(reply).replace("\n", "<br>")}
-        </div>
-        """)
-
-    # ---------------- ספוילרים ----------------
-    for s in spoilers:
-        html_parts.append(f"""
-        <div style="
-            margin-top:10px;
-            background:#f5d6d6;
-            border:1px solid #f5b7b1;
-            padding:10px;
-            border-radius:10px;">
-            🤐 <b>ספוילר:</b><br>
-            {clean_text(s)}
+            {safe_reply}
         </div>
         """)
 
@@ -149,15 +124,15 @@ def send_email(messages):
     for m in messages:
         formatted = format_message_html(m["text"])
 
-        body += f"""
+        body += """
         <div style="
             border:1px solid #ccc;
             border-radius:10px;
             padding:10px;
             margin-bottom:15px;">
-            {formatted}
-        </div>
         """
+        body += formatted
+        body += "</div>"
 
     body += "</body></html>"
 
