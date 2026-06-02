@@ -12,19 +12,25 @@ LAST_ID_FILE = "last_id.txt"
 
 
 # ---------------------------
-# ניקוי טקסט מהודעות
+# ניקוי טקסט
 # ---------------------------
 def clean_text(text: str) -> str:
     text = re.sub(r"\*\*", "", text)
     text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
     text = re.sub(r"\[video-embedded.*?\]", "", text)
+
+    # ניקוי תגיות מערכת
+    text = re.sub(r"quote-embedded#?", "", text)
+    text = re.sub(r"video-embedded#?", "", text)
+
     text = re.sub(r"\n+", " ", text)
     text = re.sub(r"\s+", " ", text).strip()
+
     return text
 
 
 # ---------------------------
-# עיצוב הודעה (HTML)
+# עיצוב הודעה HTML
 # ---------------------------
 def format_message_html(text: str) -> str:
     text = clean_text(text)
@@ -68,7 +74,7 @@ def format_message_html(text: str) -> str:
 
         text = rest
 
-    # ---------------- הודעה רגילה ----------------
+    # ---------------- הודעה רגילה (בלי "תגובה") ----------------
     if text.strip():
         safe_text = text.replace("\n", "<br>")
 
@@ -78,7 +84,6 @@ def format_message_html(text: str) -> str:
             border-radius:10px;
             padding:10px;
             background:#eafaf1;">
-            🗨️ <b>תגובה:</b><br>
             {safe_text}
         </div>
         """)
@@ -146,7 +151,7 @@ def send_email(messages):
 
 
 # ---------------------------
-# לוגיקה ראשית
+# קריאה ל-API ולוגיקה ראשית
 # ---------------------------
 def main():
 
