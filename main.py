@@ -6,67 +6,105 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
 API_URL = "https://hagizra.news/api/v2/messages"
+
 LIMIT = 20
 LAST_ID_FILE = "last_id.txt"
 
 
-# =========================
-# ניקוי טקסט בסיסי
-# =========================
+# ---------------------------
+# ניקוי טקסט מהודעות
+# ---------------------------
 def clean_text(text: str) -> str:
-    text = re.sub(r"\*\*", "", text)  # כוכביות
-    text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)  # לינקים
-    text = re.sub(r"\[video-embedded.*?\]", "", text)  # וידאו
+    text = re.sub(r"\*\*", "", text)
+    text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
+    text = re.sub(r"\[video-embedded.*?\]", "", text)
     text = re.sub(r"\n+", " ", text)
     text = re.sub(r"\s+", " ", text).strip()
     return text
 
 
-# =========================
-# חילוץ ציטוטים אם קיימים
-# =========================
-def parse_message(msg: dict) -> str:
-    raw = msg.get("text", "")
+# ---------------------------
+# עיצוב הודעה (HTML בסגנון Java)
+# ---------------------------
+def format_message_html(text: str) -> str:
+    text = clean_text(text)
 
-    # אם יש quote embedded
-    if "quote-embedded" in raw or "ציטוט" in raw:
-        parts = raw.split("\n", 1)
+    html_parts = []
 
-        quote_part = parts[0].strip()
-        reply_part = parts[1].strip() if len(parts) > 1 else ""
+    # -------- ספוילרים --------
+    spoilers = re.findall(r"\[spoiler\](.*?)\[/spoiler\]", text, re.DOTALL)
+    for s in spoilers:
+        html_parts.append(f"""
+        <div style="
+            margin-top:10px;
+            background:#f5d6d6;
+            border:1px solid #f5b7b1;
+            padding:10px;
+            border-radius:10px;">
+            🤐 <b>ספוילר:</b><br>
+            <span style="color:#333">{s.strip()}</span>
+        </div>
+        """)
+        text = text.replace(f"[spoiler]{s}[/spoiler]", "")
 
-        return (
-            "↩️ ציטוט:\n"
-            f"> {clean_text(quote_part)}\n\n"
-            "🗨️ תגובה:\n"
-            f"{clean_text(reply_part)}"
-        ).strip()
+    # -------- ציטוט (תמיכה בסיסית לפי >) --------
+    if text.startswith(">"):
+        parts = text.split("\n", 1)
+        quote = parts[0].lstrip(">")
+        rest = parts[1] if len(parts) > 1 else ""
 
-    # הודעה רגילה
-    return "🗨️ הודעה:\n" + clean_text(raw)
+        html_parts.append(f"""
+        <div style="
+            border:1px solid #99d6ff;
+            border-radius:10px;
+            padding:10px;
+            margin-bottom:10px;
+            background:#eaf6ff;">
+            🌟 <b>ציטוט:</b><br>
+            <i>{quote.strip()}</i>
+        </div>
+        """)
+
+        text = rest
+
+    # -------- הודעה רגילה --------
+    if text.strip():
+        html_parts.append(f"""
+        <div style="
+            border:1px solid #a9dfbf;
+            border-radius:10px;
+            padding:10px;
+            background:#eafaf1;">
+            🗨️ <b>תגובה:</b><br>
+            {text.replace('\n', '<br>')}
+        </div>
+        """)
+
+    return "\n".join(html_parts)
 
 
-# =========================
+# ---------------------------
 # קריאת ID אחרון
-# =========================
+# ---------------------------
 def load_last_id():
     if not os.path.exists(LAST_ID_FILE):
         return None
+
     with open(LAST_ID_FILE, "r", encoding="utf-8") as f:
         return f.read().strip() or None
 
 
-# =========================
-# שמירת ID אחרון (נוצר לבד)
-# =========================
+# ---------------------------
+# שמירת ID אחרון
+# ---------------------------
 def save_last_id(last_id):
     with open(LAST_ID_FILE, "w", encoding="utf-8") as f:
         f.write(str(last_id))
 
 
-# =========================
+# ---------------------------
 # שליחת מייל
-# =========================
+# ---------------------------
 def send_email(messages):
     if not messages:
         return
@@ -80,22 +118,32 @@ def send_email(messages):
     msg["From"] = EMAIL_FROM
     msg["To"] = EMAIL_TO
 
-    body = ""
+    body = "<html><body style='font-family:Arial; direction:rtl;'>"
 
     for m in messages:
-        formatted = parse_message(m)
-        body += f"\n\n---\nID: {m['id']}\n\n{formatted}\n"
+        formatted = format_message_html(m["text"])
+        body += f"""
+        <div style="
+            border:1px solid #ccc;
+            border-radius:10px;
+            padding:10px;
+            margin-bottom:15px;">
+            {formatted}
+        </div>
+        """
 
-    msg.attach(MIMEText(body, "plain", "utf-8"))
+    body += "</body></html>"
+
+    msg.attach(MIMEText(body, "html", "utf-8"))
 
     with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
         server.login(EMAIL_FROM, EMAIL_PASS)
         server.send_message(msg)
 
 
-# =========================
+# ---------------------------
 # לוגיקה ראשית
-# =========================
+# ---------------------------
 def main():
 
     last_id = load_last_id()
@@ -124,7 +172,7 @@ def main():
             if newest_id is None:
                 newest_id = msg_id
 
-            if last_id and msg_id == last_id:
+            if last_id is not None and msg_id == last_id:
                 stop = True
                 break
 
@@ -135,13 +183,10 @@ def main():
 
         offset += LIMIT
 
-    # ישן → חדש
     new_messages.reverse()
 
-    # שליחה
     send_email(new_messages)
 
-    # שמירת ID אחרון
     if newest_id:
         save_last_id(newest_id)
 
