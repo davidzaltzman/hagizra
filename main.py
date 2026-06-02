@@ -1,5 +1,4 @@
 import requests
-import json
 import os
 import smtplib
 from email.mime.text import MIMEText
@@ -8,24 +7,31 @@ from email.mime.multipart import MIMEMultipart
 API_URL = "https://hagizra.news/api/v2/messages"
 
 LIMIT = 20
-RAW_FILE = "messages_raw.json"
-IDS_FILE = "last_ids.txt"
+LAST_ID_FILE = "last_id.txt"
 
 
-def load_sent_ids():
-    if not os.path.exists(IDS_FILE):
-        return set()
+# ---------------------------
+# קריאת ID אחרון
+# ---------------------------
+def load_last_id():
+    if not os.path.exists(LAST_ID_FILE):
+        return None
 
-    with open(IDS_FILE, "r", encoding="utf-8") as f:
-        return set(line.strip() for line in f.readlines())
-
-
-def save_sent_ids(ids):
-    with open(IDS_FILE, "w", encoding="utf-8") as f:
-        for i in ids:
-            f.write(str(i) + "\n")
+    with open(LAST_ID_FILE, "r", encoding="utf-8") as f:
+        return f.read().strip() or None
 
 
+# ---------------------------
+# שמירת ID אחרון
+# ---------------------------
+def save_last_id(last_id):
+    with open(LAST_ID_FILE, "w", encoding="utf-8") as f:
+        f.write(str(last_id))
+
+
+# ---------------------------
+# שליחת מייל
+# ---------------------------
 def send_email(messages):
     if not messages:
         return
@@ -50,12 +56,16 @@ def send_email(messages):
         server.send_message(msg)
 
 
+# ---------------------------
+# לוגיקה ראשית
+# ---------------------------
 def main():
 
-    sent_ids = load_sent_ids()
+    last_id = load_last_id()
     offset = 0
 
     new_messages = []
+    newest_id = None
     stop = False
 
     while True:
@@ -74,24 +84,31 @@ def main():
         for m in data:
             msg_id = str(m["id"])
 
-            # אם כבר ראינו את ההודעה הזו → עוצרים הכל
-            if msg_id in sent_ids:
+            # שומר את הכי חדש שנמצא
+            if newest_id is None:
+                newest_id = msg_id
+
+            # אם הגענו להודעה שכבר ראינו → עצירה
+            if last_id is not None and msg_id == last_id:
                 stop = True
                 break
 
             new_messages.append(m)
-            sent_ids.add(msg_id)
 
         if stop:
             break
 
         offset += LIMIT
 
-    # הופכים לישן → חדש
+    # להפוך לישן → חדש
     new_messages.reverse()
 
+    # שליחת מייל
     send_email(new_messages)
-    save_sent_ids(sent_ids)
+
+    # שמירת ID אחרון
+    if newest_id:
+        save_last_id(newest_id)
 
     print(f"Sent {len(new_messages)} new messages")
 
