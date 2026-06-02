@@ -24,15 +24,16 @@ def clean_text(text: str) -> str:
 
 
 # ---------------------------
-# עיצוב הודעה (HTML בסגנון Java)
+# עיצוב הודעה (HTML)
 # ---------------------------
 def format_message_html(text: str) -> str:
     text = clean_text(text)
 
     html_parts = []
 
-    # -------- ספוילרים --------
+    # ---------------- ספוילרים ----------------
     spoilers = re.findall(r"\[spoiler\](.*?)\[/spoiler\]", text, re.DOTALL)
+
     for s in spoilers:
         html_parts.append(f"""
         <div style="
@@ -47,7 +48,7 @@ def format_message_html(text: str) -> str:
         """)
         text = text.replace(f"[spoiler]{s}[/spoiler]", "")
 
-    # -------- ציטוט (תמיכה בסיסית לפי >) --------
+    # ---------------- ציטוט ----------------
     if text.startswith(">"):
         parts = text.split("\n", 1)
         quote = parts[0].lstrip(">")
@@ -67,8 +68,10 @@ def format_message_html(text: str) -> str:
 
         text = rest
 
-    # -------- הודעה רגילה --------
+    # ---------------- הודעה רגילה ----------------
     if text.strip():
+        safe_text = text.replace("\n", "<br>")
+
         html_parts.append(f"""
         <div style="
             border:1px solid #a9dfbf;
@@ -76,7 +79,7 @@ def format_message_html(text: str) -> str:
             padding:10px;
             background:#eafaf1;">
             🗨️ <b>תגובה:</b><br>
-            {text.replace('\n', '<br>')}
+            {safe_text}
         </div>
         """)
 
@@ -122,6 +125,7 @@ def send_email(messages):
 
     for m in messages:
         formatted = format_message_html(m["text"])
+
         body += f"""
         <div style="
             border:1px solid #ccc;
