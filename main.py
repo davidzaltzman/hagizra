@@ -11,24 +11,41 @@ LAST_ID_FILE = "last_id.txt"
 
 
 # ---------------------------
-# ניקוי מתקדם (כולל פרסומות + embeds)
+# זיהוי האם יש מדיה
 # ---------------------------
-def clean_text(text: str) -> str:
+def has_media(text: str) -> bool:
+    return (
+        "[video-embedded#]" in text or
+        "[image-embedded#]" in text
+    )
 
-    # ❌ הסרת embeds (וידאו / תמונה)
+
+# ---------------------------
+# ניקוי טקסט בסיסי
+# ---------------------------
+def clean_text(text: str, media_mode: bool = False) -> str:
+
+    # הסרת embeds
     text = re.sub(r"\[video-embedded#\]\([^)]+\)", "", text)
     text = re.sub(r"\[image-embedded#\]\([^)]+\)", "", text)
 
-    # ❌ הסרת quote marker
+    # הסרת quote marker
     text = re.sub(r"\[quote-embedded#\]", "", text)
 
-    # ❌ הסרת HTML spans (פרסומות כמו יעקב שוואקי)
+    # הסרת HTML spans (פרסומות)
     text = re.sub(r"<span.*?>.*?</span>", "", text, flags=re.DOTALL)
 
-    # ❌ הסרת HTML כללי (אם נשאר משהו)
+    # הסרת HTML
     text = re.sub(r"<[^>]+>", "", text)
 
-    # ❌ ניקוי סימנים
+    # הסרת קישורים markdown
+    text = re.sub(r"https?://\S+", "", text)
+
+    # הסרת אימוג'ים (במצב מדיה בלבד)
+    if media_mode:
+        text = re.sub(r"[\U00010000-\U0010ffff]", "", text)
+
+    # ניקוי כוכביות ורווחים
     text = re.sub(r"\*\*", "", text)
     text = re.sub(r"\n+", " ", text)
     text = re.sub(r"\s+", " ", text).strip()
@@ -60,9 +77,11 @@ def parse_quote(text: str):
 # ---------------------------
 def format_message_html(raw_text: str):
 
-    html_parts = []
+    media = has_media(raw_text)
 
     quote, reply = parse_quote(raw_text)
+
+    html_parts = []
 
     # ---------------- ציטוט ----------------
     if quote:
@@ -74,20 +93,16 @@ def format_message_html(raw_text: str):
             margin-bottom:10px;
             background:#eaf6ff;">
             🌟 <b>ציטוט:</b><br>
-            <i>{clean_text(quote)}</i>
+            <i>{clean_text(quote, media_mode=media)}</i>
         </div>
         """)
 
     # ---------------- תגובה ----------------
     if reply:
 
-        # ❌ הסרת וידאו/תמונה מתוך התגובה עצמה
-        reply = re.sub(r"\[video-embedded#\]\([^)]+\)", "", reply)
-        reply = re.sub(r"\[image-embedded#\]\([^)]+\)", "", reply)
+        safe_reply = clean_text(reply, media_mode=media)
 
-        safe_reply = clean_text(reply).replace("\n", "<br>")
-
-        if safe_reply.strip():
+        if safe_reply:
 
             html_parts.append(f"""
             <div style="
@@ -108,6 +123,7 @@ def format_message_html(raw_text: str):
 def load_last_id():
     if not os.path.exists(LAST_ID_FILE):
         return None
+
     with open(LAST_ID_FILE, "r", encoding="utf-8") as f:
         return f.read().strip() or None
 
