@@ -11,41 +11,45 @@ LAST_ID_FILE = "last_id.txt"
 
 
 # ---------------------------
-# זיהוי האם יש מדיה
+# בדיקה אם יש טקסט אמיתי (עברית/אנגלית)
+# ---------------------------
+def has_real_text(text: str) -> bool:
+    return bool(re.search(r"[a-zA-Z\u0590-\u05FF]", text))
+
+
+# ---------------------------
+# האם התוכן רק סימנים/רעש
+# ---------------------------
+def is_noise_only(text: str) -> bool:
+    cleaned = re.sub(r"[\s\|\*\-_:•]", "", text)
+    cleaned = re.sub(r"[\U00010000-\U0010ffff]", "", cleaned)  # אימוג'ים
+    return cleaned == ""
+
+
+# ---------------------------
+# זיהוי מדיה
 # ---------------------------
 def has_media(text: str) -> bool:
-    return (
-        "[video-embedded#]" in text or
-        "[image-embedded#]" in text
-    )
+    return ("video-embedded#" in text or "image-embedded#" in text)
 
 
 # ---------------------------
-# ניקוי טקסט בסיסי
+# ניקוי טקסט
 # ---------------------------
 def clean_text(text: str, media_mode: bool = False) -> str:
 
-    # הסרת embeds
     text = re.sub(r"\[video-embedded#\]\([^)]+\)", "", text)
     text = re.sub(r"\[image-embedded#\]\([^)]+\)", "", text)
-
-    # הסרת quote marker
     text = re.sub(r"\[quote-embedded#\]", "", text)
 
-    # הסרת HTML spans (פרסומות)
     text = re.sub(r"<span.*?>.*?</span>", "", text, flags=re.DOTALL)
-
-    # הסרת HTML
     text = re.sub(r"<[^>]+>", "", text)
 
-    # הסרת קישורים markdown
     text = re.sub(r"https?://\S+", "", text)
 
-    # הסרת אימוג'ים (במצב מדיה בלבד)
     if media_mode:
         text = re.sub(r"[\U00010000-\U0010ffff]", "", text)
 
-    # ניקוי כוכביות ורווחים
     text = re.sub(r"\*\*", "", text)
     text = re.sub(r"\n+", " ", text)
     text = re.sub(r"\s+", " ", text).strip()
@@ -73,46 +77,57 @@ def parse_quote(text: str):
 
 
 # ---------------------------
-# עיצוב הודעה
+# בניית הודעה
 # ---------------------------
 def format_message_html(raw_text: str):
 
     media = has_media(raw_text)
-
     quote, reply = parse_quote(raw_text)
 
     html_parts = []
 
     # ---------------- ציטוט ----------------
     if quote:
-        html_parts.append(f"""
-        <div style="
-            border:1px solid #99d6ff;
-            border-radius:10px;
-            padding:10px;
-            margin-bottom:10px;
-            background:#eaf6ff;">
-            🌟 <b>ציטוט:</b><br>
-            <i>{clean_text(quote, media_mode=media)}</i>
-        </div>
-        """)
+        quote_clean = clean_text(quote, media_mode=media)
+
+        if has_real_text(quote_clean) and not is_noise_only(quote_clean):
+            html_parts.append(f"""
+            <div style="
+                border:1px solid #99d6ff;
+                border-radius:10px;
+                padding:10px;
+                margin-bottom:10px;
+                background:#eaf6ff;">
+                🌟 <b>ציטוט:</b><br>
+                <i>{quote_clean}</i>
+            </div>
+            """)
 
     # ---------------- תגובה ----------------
     if reply:
+        reply_clean = clean_text(reply, media_mode=media)
 
-        safe_reply = clean_text(reply, media_mode=media)
+        # ❌ אם אין טקסט אמיתי → לא מציגים כלום
+        if not has_real_text(reply_clean):
+            return ""
 
-        if safe_reply:
+        # ❌ אם זה רק סימנים → לא מציגים כלום
+        if is_noise_only(reply_clean):
+            return ""
 
-            html_parts.append(f"""
-            <div style="
-                border:1px solid #a9dfbf;
-                border-radius:10px;
-                padding:10px;
-                background:#eafaf1;">
-                {safe_reply}
-            </div>
-            """)
+        html_parts.append(f"""
+        <div style="
+            border:1px solid #a9dfbf;
+            border-radius:10px;
+            padding:10px;
+            background:#eafaf1;">
+            {reply_clean}
+        </div>
+        """)
+
+    # ❌ אם הכל ריק → לא מחזירים כלום
+    if not html_parts:
+        return ""
 
     return "\n".join(html_parts)
 
@@ -123,7 +138,6 @@ def format_message_html(raw_text: str):
 def load_last_id():
     if not os.path.exists(LAST_ID_FILE):
         return None
-
     with open(LAST_ID_FILE, "r", encoding="utf-8") as f:
         return f.read().strip() or None
 
@@ -151,8 +165,16 @@ def send_email(messages):
 
     body = "<html><body style='font-family:Arial; direction:rtl;'>"
 
+    valid_count = 0
+
     for m in messages:
         formatted = format_message_html(m["text"])
+
+        # ❌ אם ההודעה ריקה לגמרי → מדלגים עליה
+        if not formatted:
+            continue
+
+        valid_count += 1
 
         body += """
         <div style="
@@ -165,6 +187,10 @@ def send_email(messages):
         body += "</div>"
 
     body += "</body></html>"
+
+    # אם לא נשאר כלום אחרי סינון → לא שולחים בכלל
+    if valid_count == 0:
+        return
 
     msg.attach(MIMEText(body, "html", "utf-8"))
 
