@@ -11,23 +11,23 @@ LAST_ID_FILE = "last_id.txt"
 
 
 # ---------------------------
-# בדיקה אם יש טקסט אמיתי (עברית/אנגלית)
+# בדיקה אם יש טקסט אמיתי
 # ---------------------------
 def has_real_text(text: str) -> bool:
     return bool(re.search(r"[a-zA-Z\u0590-\u05FF]", text))
 
 
 # ---------------------------
-# האם התוכן רק סימנים/רעש
+# האם זה רק רעש
 # ---------------------------
 def is_noise_only(text: str) -> bool:
     cleaned = re.sub(r"[\s\|\*\-_:•]", "", text)
-    cleaned = re.sub(r"[\U00010000-\U0010ffff]", "", cleaned)  # אימוג'ים
+    cleaned = re.sub(r"[\U00010000-\U0010ffff]", "", cleaned)
     return cleaned == ""
 
 
 # ---------------------------
-# זיהוי מדיה
+# מדיה
 # ---------------------------
 def has_media(text: str) -> bool:
     return ("video-embedded#" in text or "image-embedded#" in text)
@@ -37,7 +37,6 @@ def has_media(text: str) -> bool:
 # ניקוי טקסט
 # ---------------------------
 def clean_text(text: str, media_mode: bool = False) -> str:
-
     text = re.sub(r"\[video-embedded#\]\([^)]+\)", "", text)
     text = re.sub(r"\[image-embedded#\]\([^)]+\)", "", text)
     text = re.sub(r"\[quote-embedded#\]", "", text)
@@ -61,12 +60,7 @@ def clean_text(text: str, media_mode: bool = False) -> str:
 # זיהוי ציטוט
 # ---------------------------
 def parse_quote(text: str):
-    match = re.search(
-        r"\[quote-embedded#\]\((\d+)@(.*?)\)\s*(.*)",
-        text,
-        re.DOTALL
-    )
-
+    match = re.search(r"\[quote-embedded#\]\((\d+)@(.*?)\)\s*(.*)", text, re.DOTALL)
     if not match:
         return None, text
 
@@ -77,55 +71,39 @@ def parse_quote(text: str):
 
 
 # ---------------------------
-# בניית הודעה
+# עיצוב הודעה
 # ---------------------------
 def format_message_html(raw_text: str):
-
     media = has_media(raw_text)
     quote, reply = parse_quote(raw_text)
 
     html_parts = []
 
-    # ---------------- ציטוט ----------------
+    # -------- ציטוט --------
     if quote:
         quote_clean = clean_text(quote, media_mode=media)
 
         if has_real_text(quote_clean) and not is_noise_only(quote_clean):
             html_parts.append(f"""
-            <div style="
-                border:1px solid #99d6ff;
-                border-radius:10px;
-                padding:10px;
-                margin-bottom:10px;
-                background:#eaf6ff;">
+            <div style="border:1px solid #99d6ff;border-radius:10px;padding:10px;margin-bottom:10px;background:#eaf6ff;">
                 🌟 <b>ציטוט:</b><br>
                 <i>{quote_clean}</i>
             </div>
             """)
 
-    # ---------------- תגובה ----------------
+    # -------- תגובה --------
     if reply:
         reply_clean = clean_text(reply, media_mode=media)
 
-        # ❌ אם אין טקסט אמיתי → לא מציגים כלום
-        if not has_real_text(reply_clean):
-            return ""
-
-        # ❌ אם זה רק סימנים → לא מציגים כלום
-        if is_noise_only(reply_clean):
+        if not has_real_text(reply_clean) or is_noise_only(reply_clean):
             return ""
 
         html_parts.append(f"""
-        <div style="
-            border:1px solid #a9dfbf;
-            border-radius:10px;
-            padding:10px;
-            background:#eafaf1;">
+        <div style="border:1px solid #a9dfbf;border-radius:10px;padding:10px;background:#eafaf1;">
             {reply_clean}
         </div>
         """)
 
-    # ❌ אם הכל ריק → לא מחזירים כלום
     if not html_parts:
         return ""
 
@@ -133,7 +111,7 @@ def format_message_html(raw_text: str):
 
 
 # ---------------------------
-# ID אחרון
+# LAST ID
 # ---------------------------
 def load_last_id():
     if not os.path.exists(LAST_ID_FILE):
@@ -163,33 +141,27 @@ def send_email(messages):
     msg["From"] = EMAIL_FROM
     msg["To"] = EMAIL_TO
 
-    body = "<html><body style='font-family:Arial; direction:rtl;'>"
+    body = "<html><body style='font-family:Arial;direction:rtl;'>"
 
-    valid_count = 0
+    valid_found = False
 
     for m in messages:
         formatted = format_message_html(m["text"])
 
-        # ❌ אם ההודעה ריקה לגמרי → מדלגים עליה
         if not formatted:
             continue
 
-        valid_count += 1
+        valid_found = True
 
-        body += """
-        <div style="
-            border:1px solid #ccc;
-            border-radius:10px;
-            padding:10px;
-            margin-bottom:15px;">
+        body += f"""
+        <div style="border:1px solid #ccc;border-radius:10px;padding:10px;margin-bottom:15px;">
+            {formatted}
+        </div>
         """
-        body += formatted
-        body += "</div>"
 
     body += "</body></html>"
 
-    # אם לא נשאר כלום אחרי סינון → לא שולחים בכלל
-    if valid_count == 0:
+    if not valid_found:
         return
 
     msg.attach(MIMEText(body, "html", "utf-8"))
@@ -200,19 +172,19 @@ def send_email(messages):
 
 
 # ---------------------------
-# לוגיקה ראשית
+# MAIN
 # ---------------------------
 def main():
-
     last_id = load_last_id()
     offset = 0
 
     new_messages = []
+    seen_ids = set()
+
     newest_id = None
     stop = False
 
     while True:
-
         res = requests.get(API_URL, params={
             "offset": offset,
             "limit": LIMIT,
@@ -220,12 +192,15 @@ def main():
         })
 
         data = res.json().get("messages", [])
-
         if not data:
             break
 
         for m in data:
             msg_id = str(m["id"])
+
+            if msg_id in seen_ids:
+                continue
+            seen_ids.add(msg_id)
 
             if newest_id is None:
                 newest_id = msg_id
@@ -243,12 +218,16 @@ def main():
 
     new_messages.reverse()
 
+    # שולחים רק אם יש משהו אמיתי
+    before_send_count = len(new_messages)
     send_email(new_messages)
 
-    if newest_id:
-        save_last_id(newest_id)
+    # 🔥 קריטי: מעדכנים last_id רק אם באמת היה משהו לשלוח
+    if before_send_count > 0:
+        # לוקחים את ההודעה הכי חדשה שבאמת עברה עיבוד
+        save_last_id(str(new_messages[-1]["id"]))
 
-    print(f"Sent {len(new_messages)} messages")
+    print(f"Sent {before_send_count} messages")
 
 
 if __name__ == "__main__":
