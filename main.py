@@ -105,8 +105,12 @@ def load_last_id():
 
 
 def save_last_id(last_id):
-    with open(LAST_ID_FILE, "w", encoding="utf-8") as f:
+    tmp = LAST_ID_FILE + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
         f.write(str(last_id))
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, LAST_ID_FILE)
 
 
 # ---------------------------
@@ -157,9 +161,9 @@ def main():
     offset = 0
 
     new_messages = []
-    max_seen_id = None  # 🔥 זה התיקון האמיתי
 
-    stop = False
+    newest_seen_id = None
+    max_id = None
 
     while True:
         res = requests.get(API_URL, params={
@@ -173,21 +177,20 @@ def main():
             break
 
         for m in data:
-            msg_id = str(m["id"])
+            msg_id = int(m["id"])
 
-            # 🔥 תמיד שומרים את המקסימום
-            if max_seen_id is None:
-                max_seen_id = msg_id
-            else:
-                max_seen_id = max(max_seen_id, msg_id)
+            if max_id is None or msg_id > max_id:
+                max_id = msg_id
 
-            if last_id and msg_id == last_id:
-                stop = True
+            if newest_seen_id is None:
+                newest_seen_id = msg_id
+
+            if last_id and str(msg_id) == str(last_id):
                 break
 
             new_messages.append(m)
 
-        if stop:
+        if last_id and any(str(m["id"]) == str(last_id) for m in data):
             break
 
         offset += LIMIT
@@ -196,9 +199,9 @@ def main():
 
     send_email(new_messages)
 
-    # 🔥 קריטי: שומרים את הכי גבוה באמת
-    if max_seen_id:
-        save_last_id(max_seen_id)
+    # ✔️ זה התיקון האמיתי
+    if max_id is not None:
+        save_last_id(max_id)
 
     print(f"Sent {len(new_messages)} messages")
 
