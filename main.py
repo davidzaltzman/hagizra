@@ -7,6 +7,7 @@ from email.mime.multipart import MIMEMultipart
 
 API_URL = "https://hagizra.news/api/v2/messages"
 LIMIT = 20
+MAX_MESSAGES = 1000
 LAST_ID_FILE = "last_id.txt"
 
 
@@ -158,11 +159,25 @@ def send_email(messages):
 # ---------------------------
 def main():
     last_id = load_last_id()
+
+    # מניעת שליחת היסטוריה בריצה ראשונה
+    if last_id is None:
+        res = requests.get(API_URL, params={
+            "offset": 0,
+            "limit": 1,
+            "direction": "desc"
+        })
+
+        data = res.json().get("messages", [])
+
+        if data:
+            save_last_id(data[0]["id"])
+
+        print("First run - saved last_id and exit")
+        return
+
     offset = 0
-
     new_messages = []
-
-    newest_seen_id = None
     max_id = None
 
     while True:
@@ -182,15 +197,19 @@ def main():
             if max_id is None or msg_id > max_id:
                 max_id = msg_id
 
-            if newest_seen_id is None:
-                newest_seen_id = msg_id
-
-            if last_id and str(msg_id) == str(last_id):
+            if str(msg_id) == str(last_id):
                 break
 
             new_messages.append(m)
 
-        if last_id and any(str(m["id"]) == str(last_id) for m in data):
+            # מגבלת 1000 הודעות
+            if len(new_messages) >= MAX_MESSAGES:
+                break
+
+        if any(str(m["id"]) == str(last_id) for m in data):
+            break
+
+        if len(new_messages) >= MAX_MESSAGES:
             break
 
         offset += LIMIT
@@ -199,7 +218,6 @@ def main():
 
     send_email(new_messages)
 
-    # ✔️ זה התיקון האמיתי
     if max_id is not None:
         save_last_id(max_id)
 
