@@ -63,11 +63,30 @@ def parse_quote(text: str):
 
 
 # ---------------------------
+# 🔥 חדש: חילוץ מדיה
+# ---------------------------
+def extract_media_links(text: str):
+    media = []
+
+    video_match = re.search(r"\[video-embedded#\]\((https?://[^)]+)\)", text)
+    if video_match:
+        media.append(("video", video_match.group(1)))
+
+    image_match = re.search(r"\[image-embedded#\]\((https?://[^)]+)\)", text)
+    if image_match:
+        media.append(("image", image_match.group(1)))
+
+    return media
+
+
+# ---------------------------
 # HTML
 # ---------------------------
 def format_message_html(raw_text: str):
     media = has_media(raw_text)
     quote, reply = parse_quote(raw_text)
+
+    media_links = extract_media_links(raw_text)
 
     parts = []
 
@@ -89,6 +108,16 @@ def format_message_html(raw_text: str):
         parts.append(f"""
         <div style="border:1px solid #a9dfbf;padding:10px;border-radius:10px;background:#eafaf1;">
         {r}
+        </div>
+        """)
+
+    # 🔥 הוספת מדיה בסוף (כפי שביקשת)
+    for mtype, url in media_links:
+        label = "סרטון" if mtype == "video" else "תמונה"
+
+        parts.append(f"""
+        <div style="margin-top:10px;">
+            🔗 <a href="{url}" target="_blank">{label}</a>
         </div>
         """)
 
@@ -160,7 +189,6 @@ def send_email(messages):
 def main():
     last_id = load_last_id()
 
-    # מניעת שליחת היסטוריה בריצה ראשונה
     if last_id is None:
         res = requests.get(API_URL, params={
             "offset": 0,
@@ -202,7 +230,6 @@ def main():
 
             new_messages.append(m)
 
-            # מגבלת 1000 הודעות
             if len(new_messages) >= MAX_MESSAGES:
                 break
 
