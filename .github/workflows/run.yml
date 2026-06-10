@@ -1,47 +1,45 @@
 name: Run Message Fetcher
 
 on:
-schedule:
-- cron: "*/30 * * * *"
-workflow_dispatch:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
 
 jobs:
-run-script:
-runs-on: ubuntu-latest
+  run-script:
+    runs-on: ubuntu-latest
 
-```
-permissions:
-  contents: write
+    permissions:
+      contents: write
 
-steps:
-  - name: Checkout repo
-    uses: actions/checkout@v4
-    with:
-      fetch-depth: 0
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-  - name: Set up Python
-    uses: actions/setup-python@v5
-    with:
-      python-version: "3.11"
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
 
-  - name: Install dependencies
-    run: pip install -r requirements.txt
+      - name: Install dependencies
+        run: pip install -r requirements.txt
 
-  - name: Run script
-    env:
-      EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
-      EMAIL_TO: ${{ secrets.EMAIL_TO }}
-      EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
-    run: python main.py
+      - name: Run script
+        env:
+          EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+        run: python main.py
 
-  - name: Commit updated last_id
-    run: |
-      git config user.name "github-actions"
-      git config user.email "github-actions@github.com"
+      - name: Commit last_id update
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
 
-      git add last_id.txt
+          git add last_id.txt
 
-      git diff --cached --quiet || git commit -m "Update last processed message ID"
+          git diff --cached --quiet || git commit -m "Update last_id"
 
-      git push
-```
+          git push
